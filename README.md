@@ -175,21 +175,6 @@ $$
 
 ---
 
-## Project Structure
-
-etf-portfolio-optimization/
-│
-├── data/
-├── scripts/
-│ └── portfolio_analysis.R
-├── slides/
-│ └── presentation.pdf
-├── figures/
-└── README.md
-
-
----
-
 ## Key Takeaways
 
 - Optimization meaningfully improves portfolio efficiency.
