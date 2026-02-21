@@ -1,5 +1,5 @@
 ---
-title: "Econ 424 Project Template"
+title: "Econ 424 Project"
 output:
   pdf_document: default
   html_notebook: default
@@ -1803,4 +1803,5 @@ Using the estimated means, variances, and covariances of returns, we constructed
 
 ## Longer-horizon investment
 Short-selling benefits may diminish over a full year, as market trends may allow long-only strategies to catch up to short-leverage benefits. Strategic asset allocation is key—gold (AAAU) and ITOT remain strong hedges even in longer time horizons.
+
 
