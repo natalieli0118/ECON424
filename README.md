@@ -126,31 +126,41 @@ For a $100,000 one-month investment:
 
 ## Mathematical Framework
 
-Portfolio variance:
+### Portfolio Variance
 
-\[
-\sigma_p^2 = w^T \Sigma w
-\]
+$$
+\sigma_p^2 = w^\top \Sigma w
+$$
 
-Sharpe ratio:
+---
 
-\[
+### Sharpe Ratio
+
+$$
 S = \frac{E[R_p] - R_f}{\sigma_p}
-\]
+$$
 
-Optimization solved under:
+---
 
-\[
-\min_w w^T \Sigma w
-\quad \text{subject to} \quad
-\sum w_i = 1
-\]
+### Global Minimum Variance Problem
 
-And for tangency portfolio:
+$$
+\min_{w} \quad w^\top \Sigma w
+$$
 
-\[
-\max_w \frac{E[R_p] - R_f}{\sigma_p}
-\]
+subject to:
+
+$$
+\sum_{i=1}^{n} w_i = 1
+$$
+
+---
+
+### Tangency Portfolio (Maximum Sharpe Ratio)
+
+$$
+\max_{w} \quad \frac{E[R_p] - R_f}{\sigma_p}
+$$
 
 ---
 
@@ -166,3 +176,24 @@ And for tangency portfolio:
 ---
 
 ## Project Structure
+
+etf-portfolio-optimization/
+│
+├── data/
+├── scripts/
+│ └── portfolio_analysis.R
+├── slides/
+│ └── presentation.pdf
+├── figures/
+└── README.md
+
+
+---
+
+## Key Takeaways
+
+- Optimization meaningfully improves portfolio efficiency.
+- Gold provides strong diversification benefits.
+- Risk budgeting is as important as capital allocation.
+- Short-selling increases efficiency but introduces practical constraints.
+- The tangency portfolio offers the best risk-adjusted return.
