@@ -1,0 +1,1806 @@
+---
+title: "Econ 424 Project Template"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+```{r, echo = FALSE}
+options(digits=3, width=70)
+# load packages
+suppressPackageStartupMessages(library(IntroCompFinR))
+suppressPackageStartupMessages(library(PerformanceAnalytics))
+suppressPackageStartupMessages(library(quantmod))
+suppressPackageStartupMessages(library(boot))
+suppressPackageStartupMessages(library(corrplot))
+suppressPackageStartupMessages(library(xtable))
+suppressPackageStartupMessages(library(knitr))
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(gridExtra))
+
+resetPar = par()
+```
+
+
+# Data
+
+Choose 4-6 assets that represent e.g. the overall equity market behavior for different countries or regions of the world or some other grouping of indexes. Below are some examples
+* S&P/ASX 200 is a commonly used stock market index for Australia.  
+* Commodity indices:www.spglobal.com/spdji/en/indices/commodities/sp-gsci/#data
+* Real estate indexes and others by MSCI: https://www.msci.com/our-solutions/indexes/real-estate-indexes
+* Vanguard index funds: https://investor.vanguard.com/investment-products/list/all?managementstyle=index
+* https://www.schwab.com/etfs/types/currency-etfs
+
+Exactly which set of assets you pick is up to your group, but please motivate your choice.  You may also want to explore ETFs vs. Mutual Funds.  Indices are more diversified so tend to be easier to work with than individual stocks.
+
+The template uses the following 5 assets over 10 years: Change the symbols to your own choices, and expand the time period to what makes sense to you (again, motivate/explain your choice.)
+
+1. iShares Core S&P Total U.S. Stock Market ETF (ITOT)
+2. (Vanguard Real Estate ETF) (VNQ)
+3. (Energy Select Sector SPDR) (XLE)
+4. Tech/growth-heavy Nasdaq-100 index (QQQ)
+5. iShares Russell 2000 ETF (IWM)
+6. Goldman Sachs Physical Gold ETF (AAAU)
+
+Information on these funds is available on the [Yahoo! finance site](http://finance.yahoo.com/) After typing in the sticker symbol and retrieving the quote data, choose Profile to get a summary of the fund. Please review each fund before doing any of the analysis below.
+
+Data for the project are downloaded automatically from Yahoo! and consist of closing price data on 5 Vanguard ETFs:
+
+```{r, echo=FALSE}
+# retrieve data for questions
+last.date = as.Date("2025-3-02")
+# last.date = 
+first.date = last.date - years(10)
+project.symbols = c("ITOT","VNQ","XLE","QQQ","IWM","AAAU")
+project.prices <- 
+  getSymbols(project.symbols, src = 'yahoo', 
+             from = as.character(first.date), 
+             to = as.character(last.date),
+             auto.assign = TRUE, 
+             warnings = FALSE) %>% 
+  map(~Ad(get(.))) %>% 
+  reduce(merge) %>%
+  `colnames<-`(project.symbols)
+projectPrices = to.monthly(project.prices, OHLC=FALSE)  # Group 7 you should continue to use daily data and skip this
+```
+
+```{r, echo=FALSE}
+# calculate simple returns
+projectReturns = na.omit(Return.calculate(projectPrices, method = "discrete"))
+ret.mat = coredata(projectReturns)
+```
+
+
+# Organization of Results
+
+As in the homework assignments, summarize your R work in an R Markdown file.
+
+# Presentation Focus
+
+Please provide a formal write-up of the project questions for your presentation (see end of file). Your presentation should consist of:
+
+1. An executive summary, which gives a brief summary of the main results and key insights using bullet points
+
+2. Sections that summarize the results of your statistical analysis by topic (see below) - given the time constraint, you want to focus on patterns that illustrate the key messages mentioned in the summary.  Do not present EVERYTHING; it will make a very boring presentation: focus on 3-5 main messages.
+
+Submit the full writeup with R-output, and present only selected parts of it for your presentation.  
+
+# Analysis of Questions  
+
+Here, you will create R code to do the analysis for the project. Note that should adjust numbers according to your data and sample period, including the risk free rate, targeted returns..etc.
+
+## Prices and Returns
+
+**For each ETF or assets, compute time plots of monthly prices and simple returns and comment. (e.g Are there any unusually large or small returns? Can you identify any news events that may explain these unusual values?  are they stationary?) **
+
+```{r, echo = FALSE}
+plot(projectPrices, multi.panel=TRUE, 
+     yaxis.same=FALSE, main="Monthly Prices on Assets", lwd=2, col="blue")
+
+grid.arrange(
+  autoplot(projectPrices[, "ITOT"]),
+  autoplot(projectPrices[, "VNQ"]),
+  autoplot(projectPrices[, "XLE"]),
+  autoplot(projectPrices[, "QQQ"]),
+  autoplot(projectPrices[, "IWM"]),
+  autoplot(projectPrices[, "AAAU"]),
+  nrow=3
+)
+```
+
+
+
+**Q: Give a plot showing the growth of $1 in each of the funds over the ten year period (recall, this is called an "equity curve"). Which fund gives the highest future value? Are you surprised?**
+
+```{r}
+equity_curve <- apply(1 + ret.mat, 2, cumprod)
+
+equity_curve_ts <- xts(equity_curve, order.by = index(projectReturns))
+
+plot(equity_curve_ts, 
+     main = "Growth of $1 Investment (2015-2025)",
+     ylab = "Value ($)",
+     xlab = "Year",
+     col = c("black", "red", "green", "blue", "purple", "gold"),
+     lwd = 2,
+     legend.loc = "topleft")
+
+final_values <- equity_curve[nrow(equity_curve),]
+print("Final values (growth of $1):")
+print(final_values)
+print(paste("Best performing fund:", names(final_values)[which.max(final_values)], 
+            "with final value of $", round(max(final_values),2)))
+
+```
+
+
+## Sample Statistics
+
+**Create four panel diagnostic plots containing histograms, boxplots, qq-plots, and SACFs for each return series and comment. Do the returns look normally distributed? Are there significant outliers in the data? Is there any evidence of linear time dependence?**
+
+```{r}
+fourPanelPlot(projectReturns$ITOT)
+fourPanelPlot(projectReturns$VNQ)
+fourPanelPlot(projectReturns$XLE)
+fourPanelPlot(projectReturns$QQQ)
+fourPanelPlot(projectReturns$IWM)
+fourPanelPlot(projectReturns$AAAU)
+
+```
+
+ITOT (Total US Market): Shows good alignment with the normal curve in the histogram, with minimal deviation in the Q-Q plot.
+QQQ (Nasdaq-100): One of the best fits to normality across all ETFs, with points closely following the diagonal line in the Q-Q plot.
+XLE (Energy): Shows the most deviation from normality, with visible heavy tails in the Q-Q plot (upper points curve above the diagonal line) and a more peaked histogram.
+VNQ (Real Estate): Reasonably normal distribution with slight deviation at the extremes.
+IWM (Russell 2000): Good approximation to normality with minor deviations.
+AAAU (Gold): Shows a somewhat less smooth histogram with multiple peaks rather than a perfect bell curve.
+
+
+**Create a plot showing the distributions of all of the assets in one graph.**
+
+```{r}
+asset_colors <- c("black", "red", "green", "blue", "purple", "gold")
+
+densities <- lapply(1:ncol(ret.mat), function(i) density(ret.mat[,i]))
+
+max_density <- max(sapply(densities, function(d) max(d$y)))
+
+plot(densities[[1]], col = asset_colors[1], lwd = 2, 
+     main = "Distribution of Monthly Returns for All Assets",
+     xlab = "Monthly Return", ylab = "Density",
+     xlim = c(-0.2, 0.2), ylim = c(0, max_density),
+     yaxt = "n")
+
+for (i in 2:length(densities)) {
+  lines(densities[[i]], col = asset_colors[i], lwd = 2)
+}
+
+legend("topright", legend = colnames(projectReturns), 
+       col = asset_colors, lwd = 2, cex = 0.8)
+
+axis(1, at = seq(-0.2, 0.2, 0.05), 
+     labels = paste0(seq(-20, 20, 5), "%"))
+
+abline(v = 0, lty = 2, col = "gray")
+```
+
+
+# Sample Statistics
+
+**Compute univariate descriptive statistics (mean, variance, standard deviation, skewness, kurtosis, quantiles) for each return series and comment.**
+
+```{r}
+muhat.vals <- apply(ret.mat, 2, mean)
+sd.vals <- apply(ret.mat, 2, sd)
+var.vals <- apply(ret.mat, 2, var)
+skew.vals <- apply(ret.mat, 2, skewness)
+ekurt.vals <- apply(ret.mat, 2, kurtosis) - 3  
+
+q.vals <- rbind(
+  q.01 = apply(ret.mat, 2, quantile, 0.01),
+  q.05 = apply(ret.mat, 2, quantile, 0.05)
+)
+
+stats.mat <- rbind(
+  muhat.vals, 
+  sd.vals,
+  var.vals,
+  skew.vals,
+  ekurt.vals,
+  q.vals
+)
+
+rownames(stats.mat) <- c("Mean", "Std Dev", "Variance", "Skewness", 
+                       "Excess Kurtosis", "1% Quantile", 
+                       "5% Quantile")
+
+kable(stats.mat, digits = 4)
+```
+
+Mean Returns
+
+QQQ (Nasdaq-100) has the highest average monthly return at 1.53%, which aligns with the tech sector's strong performance over the recent decade.
+AAAU (Gold ETF) shows surprisingly strong performance with a 1.18% monthly return, followed closely by XLE (Energy) at 1.14% and ITOT (Total US Market) at 1.13%.
+VNQ (Real Estate) and IWM (Russell 2000) have the lowest average returns at 0.63% and 0.62% respectively.
+
+Volatility (Standard Deviation)
+
+XLE (Energy) exhibits the highest volatility at 9.92%, reflecting the sector's sensitivity to economic cycles and commodity price fluctuations.
+IWM (Russell 2000) shows the second highest volatility at 6.90%, consistent with smaller companies being more vulnerable to market fluctuations.
+AAAU (Gold) has the lowest volatility at 3.99%, demonstrating its traditional role as a more stable store of value.
+
+Skewness
+
+All ETFs except XLE and AAAU show negative skewness, indicating return distributions with longer left tails (more extreme negative returns).
+VNQ has the most negative skewness at -0.4885, suggesting a higher likelihood of large negative returns.
+XLE and AAAU have positive skewness (0.1212 and 0.2809 respectively), indicating a tendency toward positive outlier returns.
+
+Excess Kurtosis
+
+All ETFs display negative excess kurtosis, meaning their distributions have thinner tails than a normal distribution.
+QQQ and AAAU have the most negative excess kurtosis (-3.3501 and -3.5664), indicating fewer extreme outliers than would be expected in a normal distribution.
+XLE has the least negative excess kurtosis at -0.5463, indicating its distribution is closest to normal in terms of tail behavior.
+
+Value at Risk (Quantiles)
+
+For the 1% quantile (representing severe downside risk), XLE has the largest potential loss at -21.05% in a month, while AAAU has the smallest at -6.51%.
+At the 5% quantile, XLE still shows the highest risk at -12.76%, and AAAU remains the safest at -4.86%.
+
+Overall Assessment
+
+The negative excess kurtosis across all assets is noteworthy as financial returns typically exhibit positive excess kurtosis. This suggests the returns in the sample period may have been less extreme than historically observed.
+AAAU (Gold) offers an interesting combination of relatively high returns with the lowest volatility, making it potentially attractive for risk-averse investors during this period.
+QQQ provides the highest returns with moderate volatility, offering the best risk-return profile among the analyzed ETFs.
+XLE demonstrates classic high-risk, high-reward characteristics with both high returns and high volatility.
+The negative skewness in most assets indicates investors faced more downside surprises than upside surprises during the period.
+
+
+# empirical quantiles for VaR calculations
+```{r}
+q.vals <- rbind(
+  q.01 = apply(ret.mat, 2, quantile, 0.01),
+  q.05 = apply(ret.mat, 2, quantile, 0.05)
+)
+print(q.vals)
+```
+
+
+# display results in a table
+```{r}
+
+stats.mat = rbind(muhat.vals, 
+                  sd.vals,
+                  skew.vals,
+                  ekurt.vals,
+                  q.vals)
+rownames(stats.mat) = c("Mean", "Std Dev", "Skewness", 
+                        "Excess Kurtosis", "1% Quantile", 
+                        "5% Quantile")
+kable(stats.mat)
+```
+
+
+**Q: Which countries or assets have the highest and lowest average return? Which funds have the highest and lowest standard deviation? How about their skewness and excess kurtosis?  For which assets is the assumption of normal distribution the most appropriate?** 
+
+Which countries or assets have the highest and lowest average return?
+
+QQQ (Nasdaq-100 index) has the highest average monthly return at 1.53%, followed closely by AAAU (Goldman Sachs Physical Gold ETF) at 1.18%. The lowest average returns are from IWM (iShares Russell 2000 ETF) at 0.62% and VNQ (Vanguard Real Estate ETF) at 0.63%.
+
+Which funds have the highest and lowest standard deviation?
+
+XLE (Energy Select Sector SPDR) displays the highest standard deviation at 9.92%, indicating it's the most volatile asset in the set. The lowest standard deviation belongs to AAAU (Gold ETF) at 3.99%, making it the least volatile option.
+
+Skewness:
+
+Most assets (ITOT, VNQ, QQQ, and IWM) show negative skewness, with VNQ having the most pronounced negative skew (-0.4885).
+XLE and AAAU exhibit positive skewness (0.1212 and 0.2809 respectively), indicating their distributions are skewed toward positive returns.
+
+For excess kurtosis:
+
+All assets show negative excess kurtosis, meaning their distributions have thinner tails than a normal distribution.
+AAAU has the most negative excess kurtosis (-3.5664), followed closely by QQQ (-3.3501).
+XLE has the least negative excess kurtosis (-0.5463).
+
+For which assets is the assumption of normal distribution the most appropriate?
+
+XLE (Energy Select Sector) has characteristics closest to a normal distribution, with the least negative excess kurtosis (-0.5463) and modest skewness (0.1212). While no asset perfectly fits a normal distribution, XLE deviates the least from normality among the examined ETFs.
+The other assets show more significant departures from normality due to their more pronounced negative skewness and excess kurtosis values. QQQ, despite having strong returns, shows substantial negative excess kurtosis (-3.3501) and moderate negative skewness (-0.2881), making the normal distribution assumption less appropriate.
+
+
+**Make an x-y plot with the standard deviations on the x-axis and the means on the y-axis. Comment on the risk-return relationship you see.**
+
+```{r}
+plot(sd.vals, muhat.vals, 
+     type = "p", 
+     pch = 19, 
+     col = "blue",
+     xlab = "Standard Deviation (Risk)",
+     ylab = "Mean Return",
+     main = "Risk-Return Relationship",
+     xlim = c(0.03, 0.11),
+     ylim = c(0.005, 0.016))
+
+text(sd.vals, muhat.vals, 
+     labels = colnames(projectReturns), 
+     pos = 4, 
+     cex = 0.8)
+
+grid()
+```
+
+
+**Compute estimated standard errors and form $95\%$ confidence intervals for the the estimates of the mean and standard deviation. Arrange these values nicely in a table. Are these means and standard deviations estimated very precisely? Which estimates are more precise: the estimated means or standard deviations? for which assets?**
+
+```{r}
+n <- nrow(ret.mat)
+
+se.mean <- sd.vals / sqrt(n)
+se.sd <- sd.vals / sqrt(2 * (n - 1))
+
+t.critical <- qt(0.975, df = n - 1)
+mean.lower <- muhat.vals - t.critical * se.mean
+mean.upper <- muhat.vals + t.critical * se.mean
+
+sd.lower <- sd.vals - t.critical * se.sd
+sd.upper <- sd.vals + t.critical * se.sd
+
+estimates.table <- data.frame(
+  Mean = muhat.vals,
+  SE_Mean = se.mean,
+  Mean_CI_Lower = mean.lower,
+  Mean_CI_Upper = mean.upper,
+  SD = sd.vals,
+  SE_SD = se.sd,
+  SD_CI_Lower = sd.lower,
+  SD_CI_Upper = sd.upper
+)
+
+kable(estimates.table, digits = 4)
+
+cv.mean <- se.mean / abs(muhat.vals)
+cv.sd <- se.sd / sd.vals
+
+precision.table <- data.frame(
+  CV_Mean = cv.mean, 
+  CV_SD = cv.sd,
+  More_Precise = ifelse(cv.mean < cv.sd, "Mean", "SD")
+)
+
+kable(precision.table, digits = 4)
+```
+The estimated standard deviations are more accurate than the estimated means for every asset as the standard error of the sds are < the standard error of the means
+
+
+**Using a monthly risk free rate equal to e.g.0.0004167 per month (which corresponds to a continuously compounded annual rate of 0.5%), compute Sharpe's slope/ratio for each asset. Use the bootstrap to calculate estimated standard errors for the Sharpe ratios. Arrange these values nicely in a table.  Note: here you should look at what a sensible monthly risk-free rate is for the choice of your sample period, e.g. https://www.macrotrends.net/2518/1-month-libor-rate-historical-chart**
+
+```{r}
+rf <- 0.0004167  
+
+sharpe_ratios <- (muhat.vals - rf) / sd.vals
+
+sharpe_df <- data.frame(
+  Asset = colnames(ret.mat),
+  Mean = muhat.vals,
+  StdDev = sd.vals,
+  Sharpe = sharpe_ratios
+)
+
+sharpe_df <- sharpe_df[order(sharpe_df$Sharpe, decreasing = TRUE), ]
+
+kable(sharpe_df, digits = 4, 
+      col.names = c("Asset", "Mean Return", "Standard Deviation", "Sharpe Ratio"),
+      row.names = FALSE)
+```
+
+
+
+**Q: Which country/region (asset) has the highest Sharpe slope?**
+AAAU (Gold) has the highest sharpe ratio 
+
+
+Next, we use the bootstrap to compute estimated SEs for the Sharpe ratios. First, we create a function to compute the Sharpe ratios to be passed to the `boot()` function and then we create another function to pull out the boostrap SEs and 95% confidence intervals. We run these functions and put the results in the following table:
+
+```{r, echo=FALSE}
+sharpeRatio.boot <- function(x, idx, risk.free) {
+  muhat <- mean(x[idx])
+  sigmahat <- sd(x[idx])
+  sharpeRatio <- (muhat - risk.free)/sigmahat
+  sharpeRatio
+}
+computeSEconfintSharpe <- function(x, risk.free) {
+  Sharpe.boot <- boot(x, statistic=sharpeRatio.boot, R=999, risk.free=risk.free)
+  Sharpe.hat <- Sharpe.boot$t0
+  SE.Sharpe <- sd(Sharpe.boot$t)
+  CI.Sharpe <- boot.ci(Sharpe.boot, conf = 0.95, type="norm")$normal
+  CI.Sharpe <- CI.Sharpe[-1]
+  ans <- c(Sharpe.hat, SE.Sharpe, CI.Sharpe)
+  names(ans) <- c("Sharpe", "SE", "LCL (0.95)", "UCL (0.95)")
+  return(ans)
+}
+set.seed(123)
+
+Sharpe.boot.ITOT <- computeSEconfintSharpe(ret.mat[, "ITOT", drop=FALSE], risk.free=rf)
+Sharpe.boot.VNQ <- computeSEconfintSharpe(ret.mat[, "VNQ", drop=FALSE], risk.free=rf)
+Sharpe.boot.XLE <- computeSEconfintSharpe(ret.mat[, "XLE", drop=FALSE], risk.free=rf)
+Sharpe.boot.QQQ <- computeSEconfintSharpe(ret.mat[, "QQQ", drop=FALSE], risk.free=rf)
+Sharpe.boot.IWM <- computeSEconfintSharpe(ret.mat[, "IWM", drop=FALSE], risk.free=rf)
+Sharpe.boot.AAAU <- computeSEconfintSharpe(ret.mat[, "AAAU", drop=FALSE], risk.free=rf)
+
+Sharpe.mat <- rbind(
+  Sharpe.boot.ITOT,
+  Sharpe.boot.VNQ,
+  Sharpe.boot.XLE,
+  Sharpe.boot.QQQ,
+  Sharpe.boot.IWM,
+  Sharpe.boot.AAAU
+)
+
+rownames(Sharpe.mat) <- colnames(projectReturns)
+
+kable(Sharpe.mat)
+```
+
+**Q: Are the Sharpe slopes estimated precisely?**
+
+No, the Sharpe ratios are not estimated very precisely. This is evident from several observations in the results:
+
+High standard errors relative to estimates: The standard errors (SE) are quite large relative to the estimated Sharpe ratios. For example:
+
+VNQ has a Sharpe ratio of 0.101 with an SE of 0.121, meaning the SE is actually larger than the estimate itself
+IWM has a Sharpe ratio of 0.084 with an SE of 0.118, again showing the SE exceeds the estimate
+Even for better-performing assets, the SEs represent 40-50% of the Sharpe ratio values
+
+
+Wide confidence intervals: Most assets have 95% confidence intervals that include zero:
+
+ITOT, VNQ, XLE, and IWM all have confidence intervals that span from negative to positive values
+This means we cannot reject the null hypothesis that the true Sharpe ratios for these assets are zero
+
+
+Only two assets show statistically significant Sharpe ratios:
+
+QQQ (0.248, 95% CI: 0.020 to 0.475)
+AAAU (0.286, 95% CI: 0.062 to 0.495)
+These are the only ETFs where the lower confidence limit (LCL) is greater than zero
+
+
+Rank uncertainty: The large overlaps in confidence intervals make it difficult to definitively rank the assets by risk-adjusted performance. While AAAU has the highest point estimate (0.286), its confidence interval substantially overlaps with QQQ's interval, meaning we cannot confidently assert which truly has the better risk-adjusted return.
+
+
+** Convert the monthly sample means into annual estimates by multiplying by 12 and convert the monthly sample SDs into annual estimates by multiplying by the square root of 12. Comment on the values of these annual numbers. Using these values, compute annualized Sharpe ratios. Are the asset rankings the same as with the monthly Sharpe ratios?**
+
+```{r}
+annual_mean <- muhat.vals * 12
+annual_sd <- sd.vals * sqrt(12)
+annual_rf <- rf * 12
+
+annual_sharpe <- (annual_mean - annual_rf) / annual_sd
+
+comparison_df <- data.frame(
+  Asset = colnames(ret.mat),
+  Monthly_Mean = muhat.vals,
+  Annual_Mean = annual_mean,
+  Monthly_SD = sd.vals,
+  Annual_SD = annual_sd,
+  Monthly_Sharpe = (muhat.vals - rf) / sd.vals,
+  Annual_Sharpe = annual_sharpe
+)
+
+monthly_ranked <- comparison_df[order(comparison_df$Monthly_Sharpe, decreasing = TRUE), ]
+
+annual_ranked <- comparison_df[order(comparison_df$Annual_Sharpe, decreasing = TRUE), ]
+
+kable(data.frame(
+  Asset = colnames(ret.mat),
+  Annual_Mean = annual_mean,
+  Annual_SD = annual_sd,
+  Annual_Sharpe = annual_sharpe
+), digits = 4)
+
+cat("\nMonthly Sharpe Ratio Rankings:\n")
+kable(data.frame(
+  Rank = 1:length(colnames(ret.mat)),
+  Asset = monthly_ranked$Asset,
+  Monthly_Sharpe = monthly_ranked$Monthly_Sharpe
+), row.names = FALSE, digits = 4)
+
+cat("\nAnnual Sharpe Ratio Rankings:\n")
+kable(data.frame(
+  Rank = 1:length(colnames(ret.mat)),
+  Asset = annual_ranked$Asset,
+  Annual_Sharpe = annual_ranked$Annual_Sharpe
+), row.names = FALSE, digits = 4)
+```
+Looking at the annual statistics, we can make the following observations:
+
+- QQQ (Nasdaq-100) shows the highest annualized return at 18.31%
+- AAAU (Gold ETF) follows with 14.16%
+- XLE (Energy) and ITOT (Total US Market) have similar returns at approximately 13.6%
+- VNQ (Real Estate) and IWM (Russell 2000) have the lowest returns at around 7.5%
+
+- XLE has substantially higher risk than other assets at 34.4%
+- IWM has the second-highest volatility at 23.9%
+- QQQ, VNQ, and ITOT show moderate volatility between 18.1-20.7%
+- AAAU demonstrates remarkably low volatility at just 13.8%
+
+- AAAU leads with the highest risk-adjusted return (0.989)
+- QQQ comes second (0.859)
+- ITOT ranks third (0.723)
+- XLE, VNQ, and IWM have substantially lower Sharpe ratios (0.382, 0.351, and 0.291 respectively)
+
+Yes, the rankings based on annual Sharpe ratios remain the same as the monthly Sharpe ratios.
+
+This consistency is expected mathematically, as the annualization process affects all assets proportionally, preserving their relative risk-adjusted performance.
+
+The annual perspective highlights some interesting insights:
+- Gold (AAAU) offers an exceptional risk-return profile, with returns significantly higher than its risk level would suggest
+- Tech-heavy QQQ delivers strong returns with moderate risk
+- Small-caps (IWM) provide poor risk-adjusted returns during this period
+- Energy (XLE) offers good returns but at substantially higher risk
+
+** Assuming you get the average annual return every year for 10 years, how much would $1 grow to after 10 years? (Remember, the annual return you compute is a cc annual return).**
+
+```{r}
+initial_investment <- 1
+
+years <- 10
+
+future_values <- initial_investment * (1 + annual_mean)^years
+
+growth_table <- data.frame(
+  Asset = colnames(ret.mat),
+  Annual_Return = annual_mean,
+  Future_Value_10yr = future_values
+)
+
+print(growth_table)
+```
+
+
+** Compute and plot all pair-wise scatterplots between your assets. Briefly comment on any relationships you see.**
+
+```{r}
+pairs(ret.mat, 
+      main = "Pair-wise Scatter Plots of Monthly Returns",
+      pch = 19,      # Point type
+      col = "blue",  # Point color
+      cex = 0.7)     # Point size
+
+```
+Strong positive correlations among equity ETFs:
+
+ITOT (Total US Market) shows strong positive correlations with VNQ, QQQ, and IWM, indicated by the clear upward-sloping patterns in these scatter plots.
+QQQ (Nasdaq-100) and IWM (Russell 2000) also demonstrate strong positive relationships, which is expected as they are both US equity indices.
+
+Moderate correlations with XLE (Energy):
+
+XLE shows positive but more moderate correlations with the other equity ETFs (ITOT, VNQ, QQQ, IWM).
+The scatter plots involving XLE display more dispersion, reflecting its sector-specific behavior that doesn't always align with broader market movements.
+
+AAAU (Gold) as a diversifier:
+
+The bottom row shows AAAU's relationship with other assets, and these plots display much less directionality.
+AAAU appears nearly uncorrelated with the equity ETFs, with scatter patterns showing a more circular or random distribution.
+This lack of strong correlation confirms gold's potential diversification benefits within a portfolio.
+
+Tight relationships within core equities:
+
+The tightest and most linear relationships appear between ITOT, QQQ, and IWM, which represent overlapping segments of the US equity market.
+VNQ (Real Estate) shows strong but slightly less tight relationships with these core equity ETFs.
+
+Volatility differences:
+
+The scales on the axes reveal the different volatility profiles of the assets.
+XLE shows the widest range of returns, consistent with its higher standard deviation.
+AAAU displays a more compressed range of returns, reflecting its lower volatility.
+
+
+**Compute the sample covariance matrix of the returns on your assets and comment on the direction of linear association between the asset returns.**
+
+```{r}
+cov_matrix <- cov(ret.mat)
+
+kable(cov_matrix, digits = 6)
+```
+Positive associations among equity ETFs:
+
+ITOT (Total US Market), VNQ (Real Estate), QQQ (Nasdaq-100), and IWM (Russell 2000) all show positive covariances with each other, indicating they tend to move in the same direction
+This positive relationship is expected since these equity market segments are influenced by similar economic factors, investor sentiment, and market conditions
+The strongest positive association appears between ITOT and IWM (0.00328), highlighting the close relationship between the broad market and small-cap stocks
+
+XLE (Energy) relationships:
+
+XLE shows positive covariances with all equity ETFs, confirming that energy stocks generally move in the same direction as the broader market
+The strongest positive association is between XLE and IWM (0.00469), suggesting energy stocks have a particularly strong relationship with small-cap equities
+Despite being a sector-specific ETF, XLE clearly follows the general direction of the overall equity market, though with higher volatility
+
+AAAU (Gold) relationships:
+
+AAAU shows a negative covariance with XLE (-0.000257), indicating these assets tend to move in opposite directions
+This negative relationship suggests gold may serve as a hedge against energy sector volatility
+AAAU has weak positive covariances with other equity ETFs (ranging from 0.00015 to 0.00057), indicating minimal directional relationship
+The near-zero covariances demonstrate gold's tendency to move independently from equity markets, making it valuable for diversification
+
+Notable directional patterns:
+
+All equity-to-equity relationships show consistent positive directionality
+The only negative directional relationship in the entire matrix is between gold and energy
+The strength of directional relationships among equity ETFs suggests limited diversification benefits within the equity portion of a portfolio
+
+
+**Compute the sample correlation matrix of the returns on your assets and plot this correlation matrix using the R corrplot package function `corrplot.mixed()`. Which assets are most highly correlated?  Which are least correlated? Based on the estimated correlation values do you think diversification will reduce risk with these assets?**
+
+```{r}
+corr_matrix <- cor(ret.mat)
+
+kable(corr_matrix, digits = 4)
+
+corrplot.mixed(corr_matrix, 
+               lower = "number", 
+               upper = "ellipse",
+               tl.col = "black", 
+               tl.pos = "lt",
+               diag = "u",
+               number.cex = 0.7,
+               title = "Correlation Matrix of Asset Returns",
+               mar = c(0, 0, 2, 0))
+```
+Most Highly Correlated Assets:
+
+ITOT and QQQ show the highest correlation at 0.921, indicating very strong co-movement between the broad US market and the tech-heavy Nasdaq-100 index.
+ITOT and IWM are nearly as highly correlated at 0.911, showing strong integration between the total market and small-cap stocks.
+ITOT and VNQ also show high correlation at 0.844, suggesting real estate securities move significantly with the broader market.
+
+Least Correlated Assets:
+
+AAAU (Gold) and XLE (Energy) have a negative correlation of -0.065, making them the least correlated pair. This negative relationship indicates they tend to move in opposite directions.
+AAAU and IWM have a very low correlation of 0.0545, indicating minimal relationship between gold and small-cap stocks.
+AAAU also has low correlations with all other equity ETFs (0.168 with ITOT, 0.246 with VNQ, and 0.179 with QQQ).
+
+Will Diversification Reduce Risk?
+Yes, diversification across these assets would significantly reduce portfolio risk, but with some important nuances:
+
+Within equity ETFs: 
+Diversification among ITOT, QQQ, VNQ, and IWM would provide limited risk reduction due to their high correlations (0.71-0.92). During market stress, these correlations would likely increase further, reducing diversification benefits when they're most needed.
+Adding XLE: The Energy sector ETF offers moderate diversification benefits with correlations to other equity ETFs ranging from 0.429 (with QQQ) to 0.684 (with IWM). This lower correlation with tech stocks (QQQ) is particularly useful.
+Including AAAU: Gold provides exceptional diversification benefits with very low or negative correlations to all other assets. Including AAAU in a portfolio would provide substantial risk reduction.
+
+For optimal diversification, a portfolio should include a mix of these assets with emphasis on combining those with low correlations. A portfolio that includes AAAU alongside the equity ETFs would experience significantly lower volatility than a portfolio composed only of equity ETFs. The negative correlation between AAAU and XLE suggests these two assets would be particularly effective when held together, as losses in one might be partially offset by gains in the other.
+
+## Value-at-Risk Calculations
+
+**Assume that you have $100,000 to invest starting at Dec 31, 2023.  For each asset, determine the 1\% and 5\% normal value-at-risk of the $100,000 investment over a one month investment horizon based on the normal distribution using the estimated means and variances of your assets.  Which assets have the highest and lowest VaR values?**
+
+```{r}
+investment <- 100000
+
+alpha_1pct <- 0.01
+alpha_5pct <- 0.05
+
+normal_VaR_1pct <- data.frame(
+  Asset = colnames(ret.mat),
+  Mean = muhat.vals,
+  SD = sd.vals,
+  VaR_1pct = -(muhat.vals + qnorm(alpha_1pct) * sd.vals) * investment,
+  VaR_1pct_pct = -(muhat.vals + qnorm(alpha_1pct) * sd.vals) * 100
+)
+
+normal_VaR_5pct <- data.frame(
+  Asset = colnames(ret.mat),
+  Mean = muhat.vals,
+  SD = sd.vals,
+  VaR_5pct = -(muhat.vals + qnorm(alpha_5pct) * sd.vals) * investment,
+  VaR_5pct_pct = -(muhat.vals + qnorm(alpha_5pct) * sd.vals) * 100
+)
+
+VaR_combined <- data.frame(
+  Asset = colnames(ret.mat),
+  Mean_Return = muhat.vals,
+  Std_Dev = sd.vals,
+  VaR_1pct = normal_VaR_1pct$VaR_1pct,
+  VaR_1pct_pct = normal_VaR_1pct$VaR_1pct_pct,
+  VaR_5pct = normal_VaR_5pct$VaR_5pct,
+  VaR_5pct_pct = normal_VaR_5pct$VaR_5pct_pct
+)
+
+VaR_combined_sorted <- VaR_combined[order(-VaR_combined$VaR_1pct),]
+
+kable(VaR_combined_sorted, digits = 2)
+```
+
+Highest VaR Values:
+XLE (Energy Select Sector SPDR) has the highest VaR values by a significant margin:
+
+1% VaR: $21,952 (21.95% of investment)
+5% VaR: $15,189 (15.19% of investment)
+
+This means that with a 100,000 investment in XLE, there is a 1% probability of losing 21,952 or more in a month, and a 5% probability of losing $15,189 or more. XLE's high VaR reflects its substantial volatility (standard deviation of 10%) despite its decent expected return (1%).
+
+Lowest VaR Values:
+AAAU (Goldman Sachs Physical Gold ETF) has the lowest VaR values:
+
+1% VaR: $8,091 (8.09% of investment)
+5% VaR: $5,375 (5.38% of investment)
+
+This indicates that with a 100,000 investment in AAAU, there is a 1% probability of losing 8,091 or more in a month, and a 5% probability of losing $5,375 or more. AAAU's low VaR values are due to its low volatility (4%) combined with a competitive expected return (1%).
+
+**Use the bootstrap to compute estimated standard errors and 95% confidence intervals for your 1\% and 5\% VaR estimates. Create a table showing the 1\% and 5\% VaR estimates along with the bootstrap standard errors and 95% confidence intervals (code provided).  Looking at these results, comment on the precision of your VaR estimates (which assets are riskier..etc.) **
+
+
+Here, we write functions to compute VaR and extract bootstrap SEs and 95\% CIs, and we use these functions to compute the $5\%$ and $1\%$ normal VaR estimates and their boostrap SEs and 95\% CIs. The following tables summarizes the results:
+
+```{r, echo=FALSE}
+# Functions for Value-at-Risk calculations
+Value.at.Risk <- function(x, p=0.05, w=100000, 
+                         method=c("normal", "empirical"),
+                         return.type=c("cc", "simple")) {
+  method=method[1]
+  return.type=return.type[1]
+  x = as.matrix(x)
+  if (method == "normal") {
+    q = apply(x, 2, mean) + apply(x, 2, sd)*qnorm(p)
+  } else {    
+    q = apply(x, 2, quantile, p)
+  }
+  if (return.type == "simple") {
+    VaR = q*w
+  } else {
+    VaR = (exp(q) - 1)*w
+  }
+  return(VaR)
+}
+
+ValueAtRisk.boot <- function(x, idx, p=0.05, w=100000,
+                            method=c("normal", "empirical"),
+                            return.type=c("cc", "simple")) {
+  method = method[1]
+  return.type = return.type[1]
+  if (method == "normal") {
+    q = mean(x[idx]) + sd(x[idx])*qnorm(p)
+  } else {
+    q = quantile(x[idx], p)
+  }
+  if (return.type == "cc") {
+    VaR = (exp(q) - 1)*w
+  } else {
+    VaR = q*w
+  }
+  VaR
+}
+
+computeSEconfintVaR <- function(x, p=0.05, w=100000,
+                               method=c("normal", "empirical"),
+                               return.type=c("cc", "simple")) {
+  VaR.boot = boot(x, statistic=ValueAtRisk.boot, p=p, R=999)
+  VaR.hat = VaR.boot$t0
+  SE.VaR = sd(VaR.boot$t)
+  CI.VaR = boot.ci(VaR.boot, conf = 0.95, type="norm")$normal
+  CI.VaR = CI.VaR[-1]
+  ans = c(VaR.hat, SE.VaR, CI.VaR)
+  names(ans) = c("VaR.05", "SE", "LCL (0.95)", "UCL (0.95)")
+  return(ans)
+}
+
+# Set seed for reproducibility
+set.seed(123)
+
+# 5% VaR calculations with bootstrap
+VaR.boot.ITOT <- computeSEconfintVaR(ret.mat[, "ITOT", drop=FALSE])
+VaR.boot.VNQ <- computeSEconfintVaR(ret.mat[, "VNQ", drop=FALSE])
+VaR.boot.XLE <- computeSEconfintVaR(ret.mat[, "XLE", drop=FALSE])
+VaR.boot.QQQ <- computeSEconfintVaR(ret.mat[, "QQQ", drop=FALSE])
+VaR.boot.IWM <- computeSEconfintVaR(ret.mat[, "IWM", drop=FALSE])
+VaR.boot.AAAU <- computeSEconfintVaR(ret.mat[, "AAAU", drop=FALSE])
+
+VaR.mat <- rbind(
+  VaR.boot.ITOT,
+  VaR.boot.VNQ,
+  VaR.boot.XLE,
+  VaR.boot.QQQ,
+  VaR.boot.IWM,
+  VaR.boot.AAAU
+)
+
+rownames(VaR.mat) <- colnames(projectReturns)
+kable(VaR.mat)
+
+# 1% VaR calculations with bootstrap
+set.seed(123)
+VaR.boot.ITOT.01 <- computeSEconfintVaR(ret.mat[, "ITOT", drop=FALSE], p=0.01)
+VaR.boot.VNQ.01 <- computeSEconfintVaR(ret.mat[, "VNQ", drop=FALSE], p=0.01)
+VaR.boot.XLE.01 <- computeSEconfintVaR(ret.mat[, "XLE", drop=FALSE], p=0.01)
+VaR.boot.QQQ.01 <- computeSEconfintVaR(ret.mat[, "QQQ", drop=FALSE], p=0.01)
+VaR.boot.IWM.01 <- computeSEconfintVaR(ret.mat[, "IWM", drop=FALSE], p=0.01)
+VaR.boot.AAAU.01 <- computeSEconfintVaR(ret.mat[, "AAAU", drop=FALSE], p=0.01)
+
+VaR.mat.01 <- rbind(
+  VaR.boot.ITOT.01,
+  VaR.boot.VNQ.01,
+  VaR.boot.XLE.01,
+  VaR.boot.QQQ.01,
+  VaR.boot.IWM.01,
+  VaR.boot.AAAU.01
+)
+
+rownames(VaR.mat.01) <- colnames(projectReturns)
+colnames(VaR.mat.01)[1] <- "VaR.01"
+kable(VaR.mat.01)
+```
+
+
+Summary of VaR Analysis:
+
+XLE has the highest 5% normal VaR values at -14,091 and AAAU has the lowest at -5,233. The bootstrap SE values vary considerably across assets, with XLE showing the largest uncertainty (SE of 1,876) and AAAU showing the smallest (SE of 526). The confidence intervals for XLE are notably wide, spanning from -18,108 to -$10,756, reflecting greater uncertainty in its risk estimates.
+
+The rankings are the same for the 1% VaR values: XLE has the highest VaR at -19,710, and AAAU has the lowest at -7,772. The bootstrap standard errors maintain the same pattern, with XLE having the largest SE at 2,343 (about 12% of its VaR value) and AAAU having the smallest at $637 (about 8% of its VaR value).
+The risk hierarchy is consistent across both probability levels: XLE (Energy) > IWM (Small Caps) > VNQ (Real Estate) > QQQ (Tech) > ITOT (Total Market) > AAAU (Gold). This ordering aligns with the volatility measures of these assets, confirming that higher volatility translates to greater downside risk.
+For all assets, the relative precision (SE/VaR ratio) is better for the 5% VaR estimates than for the 1% VaR estimates, which is expected as more extreme quantiles are harder to estimate precisely.
+Even considering estimation uncertainty (using the lower confidence limits), AAAU consistently demonstrates significantly lower risk than the other assets, making it particularly attractive for risk-averse investors.
+
+
+**Repeat the VaR analysis (but skip the bootstrapping and the annualized VaR calculation), but this time use the empirical 1% and 5% quantiles of the return distributions (which do not assume a normal distribution - this method is often called historical simulation). How different are the results from those based on the normal distribution?**
+
+** codes are provided but please explain how the two differ computationally in your presentation. **
+
+
+```{r, echo=FALSE}
+VaR.normal.05 <- Value.at.Risk(ret.mat, p=0.05, 
+                              method="normal",
+                              return.type="cc")
+
+VaR.normal.01 <- Value.at.Risk(ret.mat, p=0.01, 
+                              method="normal",
+                              return.type="cc")
+
+VaR.empirical.05 <- Value.at.Risk(ret.mat, p=0.05, 
+                                 method="empirical",
+                                 return.type="cc")
+
+VaR.empirical.01 <- Value.at.Risk(ret.mat, p=0.01, 
+                                 method="empirical",
+                                 return.type="cc")
+
+VaR.mat <- cbind(VaR.normal.05, VaR.empirical.05, VaR.normal.01, VaR.empirical.01)
+colnames(VaR.mat) <- c("Normal VaR.05", "Empirical VaR.05", "Normal VaR.01", "Empirical VaR.01")
+
+kable(VaR.mat)
+```
+
+* The normal and empirical VaR values are close? not close?  
+
+The normal and empirical VaR values are reasonably close for most assets, but with some notable differences that reveal important insights about the underlying return distributions.
+
+For the 5% VaR:
+
+ITOT, QQQ, and IWM show slightly higher empirical VaR values compared to their normal counterparts, suggesting their actual loss distributions have slightly fatter left tails than predicted by the normal distribution.
+XLE shows lower empirical VaR (-11,983) than normal VaR (-14,091), a substantial difference of about 15%. This confirms that XLE's return distribution deviates significantly from normality.
+VNQ and AAAU also show lower empirical VaR than their normal estimates, but with smaller differences.
+
+For the 1% VaR:
+
+The differences are more pronounced at this extreme quantile, which is expected since the normal distribution often fails to capture the true shape of the tails.
+VNQ shows a striking contrast with empirical VaR (-13,386) being higher than normal VaR (-12,161), suggesting its left tail is fatter than a normal distribution would predict.
+XLE and AAAU show lower empirical VaR values than their normal counterparts, indicating their actual extreme losses have historically been less severe than what a normal distribution would predict.
+
+## Rolling Sample Statistics
+
+**Compute and plot the 24-month rolling estimates of the mean and volatility for each of the 5 ETFs. Plot the rolling means, volatilities and returns on the same graph for each asset. Does the assumption of covariance stationarity look reasonable for your data? (code provided)  describe what you observe.  Does COVID show up in the data?**
+
+The 24-month rolling means are shown below:
+
+```{r, echo=FALSE}
+roll.muhat = rollapply(projectReturns, width=24, by=1, 
+                       by.column=TRUE, FUN=mean, 
+                       align="right")
+plot(na.omit(roll.muhat), main="24-month rolling estimates of mean", multi.panel=FALSE, lwd=2,
+col=c("black", "red", "green", "blue", "purple"), lty=c("solid", "solid", "solid", "solid", "solid"),
+major.ticks="years", grid.ticks.on="years", legend.loc = "topright")
+```
+
+
+The rolling volatilities are:
+
+```{r, echo=FALSE}
+roll.sigmahat = rollapply(projectReturns, width=24, by=1, 
+                          by.column=TRUE, FUN=sd, 
+                          align="right")
+plot(na.omit(roll.sigmahat), main="24-month rolling estimates of volatility", multi.panel=FALSE, lwd=2,
+col=c("black", "red", "green", "blue", "purple"), lty=c("solid", "solid", "solid", "solid", "solid"),
+major.ticks="years", grid.ticks.on="years", legend.loc = "bottomleft")
+```
+
+
+## Portfolio Theory
+
+Use all 5 assets and the GWN model estimates computed from the full sample for the following computations. You may find it useful to create a table which summarizes the results from the portfolio calculations for easy reference.
+
+**Using the IntroCompFinR function getPortfolio(), create an equally weighted portfolio of the 5 ETFs and compute the expected return and standard deviation (volatility) of this portfolio**
+```{r}
+n_assets <- 6
+w_eq <- rep(1 / n_assets, n_assets)
+
+mu_p <- sum(w_eq * muhat.vals)
+mu_p
+
+sigma_p <- sqrt(t(w_eq) %*% cov_matrix %*% w_eq)
+sigma_p
+```
+Equally Weighted Portfolio Results:
+Expected Return: 0.0104 
+Volatility: 0.0502 
+
+** Annualize the the monthly mean and SD by multiplying the mean by 12 and the SD by the square root of 12. Compute the annual Sharpe ratio from these values. Briefly comment on these values relative to those for each asset.**
+```{r}
+mu_p_annual <- mu_p * 12
+mu_p_annual
+sigma_p_annual <- sigma_p * sqrt(12)
+sigma_p_annual
+
+rf_annual <- 0.005 # Assume a 0.5% risk-free rate per year
+sharpe_ratio_annual <- (mu_p_annual - rf_annual) / sigma_p_annual
+sharpe_ratio_annual
+```
+Annualized Expected Return: 0.125 
+Annualized Volatility: 0.174 
+Annualized Sharpe Ratio: 0.688 
+
+```{r}
+annual_means <- muhat.vals * 12
+annual_stds <- sd.vals * sqrt(12)
+
+annual_sharpe_ratios <- (annual_means - rf_annual) / annual_stds
+
+annual_stats <- data.frame(
+  Asset = colnames(ret.mat),
+  Annual_Mean = round(annual_means, 4),
+  Annual_StdDev = round(annual_stds, 4),
+  Annual_Sharpe = round(annual_sharpe_ratios, 4)
+)
+
+kable(annual_stats, col.names = c("Asset", "Annual Return", "Annual Std Dev", "Annual Sharpe Ratio"))
+
+```
+
+Annualized Expected Return of the portfolio is 12.5% and annualized volatility is 17.4%. The volatility is lower than XLE (34.4%) and IWM (23.9%), meaning the portfolio benefits from risk diversification.And slightly higher than AAAU (13.8%), which is the least volatile asset. This shows that spreading investment across different asset classes reduces individual asset risks.
+
+The annualized Sharpe Ratio (0.688) is higher than XLE (0.382), VNQ (0.351), and IWM (0.291), indicating a better risk-adjusted return than these assets. And it's lower than AAAU (0.989) and QQQ (0.859), meaning that investors seeking maximum risk-adjusted returns might prefer those assets. However, the portfolio provides a balanced trade-off between risk and return.
+
+
+**Compute the global minimum variance portfolio and calculate the expected return and SD of this portfolio. Are there any negative weights in the global minimum variance portfolio?**
+```{r}
+gmvp <- globalMin.portfolio(muhat.vals, cov_matrix)
+
+gmvp_weights <- gmvp$weights
+
+gmvp_mean <- sum(gmvp_weights * muhat.vals)
+gmvp_mean
+gmvp_std <- sqrt(t(gmvp_weights) %*% cov_matrix %*% gmvp_weights)
+gmvp_std
+
+cat("Portfolio Weights:\n")
+print(round(gmvp_weights, 4))
+```
+Global Minimum Variance Portfolio:
+Expected Monthly Return: 0.0118 
+Monthly Standard Deviation: 0.0332 
+
+
+This portfolio minimizes risk (volatility) while still maintaining a positive return. The volatility (3.32%) is significantly lower than that of any individual asset, demonstrating the benefits of diversification.
+
+Gold (AAAU) and Total Market (ITOT) are the dominant holdings, making up 62.4% and 111.3% of the portfolio, respectively. The GMVP includes negative weights for VNQ, XLE, QQQ, and IWM, indicating short-selling in these assets.
+
+
+**Annualize the the monthly mean and SD by multiplying the mean by 12 and the SD by the square root of 12. Compute the annual Sharpe ratio from these values. Briefly comment on these values relative to those for each asset.**
+```{r}
+gmvp_mean_annual <- gmvp_mean * 12
+gmvp_mean_annual
+gmvp_std_annual <- gmvp_std * sqrt(12)
+gmvp_std_annual
+
+gmvp_sharpe_annual <- (gmvp_mean_annual - rf_annual) / gmvp_std_annual
+gmvp_sharpe_annual
+```
+Annualized GMVP Results:
+Annualized Expected Return: 0.142 
+Annualized Volatility: 0.115 
+Annualized Sharpe Ratio: 1.06 
+
+
+GMVP (11.5%) has the lowest volatility among all individual assets and the equally weighted portfolio (17.4%). Even Gold (AAAU) has higher volatility (13.8%), proving the GMVP effectively minimizes risk.
+
+GMVP return (14.2%) is higher than the equally weighted portfolio (12.5%). It’s lower than QQQ (18.3%) but offers far less risk.
+
+The GMVP outperforms all individual assets in risk-adjusted return, including AAAU (0.989). This means that the GMVP provides the best return per unit of risk. The GMVP is the safest portfolio with the lowest volatility while maintaining a strong return. It has the best risk-adjusted return (Sharpe ratio = 1.06). Investors seeking stable, high-efficiency returns should prefer it.
+
+
+**Assume that you have $100,000 to invest starting at April 30, 2023. For the global minimum variance portfolio, determine the 1% and 5% normal value-at-risk of the $100,000 investment over a one month investment horizon.  Compare this value to the VaR values for the individual assets.**
+```{r}
+investment <- 100000
+
+z_1 <- qnorm(0.01)
+z_5 <- qnorm(0.05)
+
+VaR_1_GMVP <- -z_1 * gmvp_std * investment
+VaR_5_GMVP <- -z_5 * gmvp_std * investment
+
+VaR_1_assets <- -z_1 * sd.vals * investment
+VaR_5_assets <- -z_5 * sd.vals * investment
+
+VaR_results <- data.frame(
+  Asset = c("GMVP", colnames(ret.mat)),
+  VaR_1 = round(c(VaR_1_GMVP, VaR_1_assets), 2),
+  VaR_5 = round(c(VaR_5_GMVP, VaR_5_assets), 2)
+)
+
+kable(VaR_results, col.names = c("Asset", "1% VaR", "5% VaR"))
+
+```
+Global Minimum Variance Portfolio (GMVP) VaR: 1% chance of losing $7,724 or more in a month. 
+5% chance of losing $5,461 or more in a month.
+
+GMVP has the lowest risk among all assets. Individual stocks, especially XLE and IWM, have significantly higher tail risk, making them more vulnerable in downturns.
+
+
+**Using the estimated means, variances and covariances computed earlier, compute and plot the efficient portfolio frontier, allowing for short sales, for the 5 ETFs using the IntroCompFinR function `efficient.frontier()`. 
+Create a plot (based on monthly frequency) with portfolio expected return on the vertical axis and portfolio standard deviation on the horizontal axis showing the efficient portfolios. Indicate the location of the global minimum variance portfolio (with short sales allowed) as well as the locations of your 5 assets and the equally weighted portfolio.**
+```{r}
+efront <- efficient.frontier(muhat.vals, cov_matrix, nport = 100)
+
+gmvp <- globalMin.portfolio(muhat.vals, cov_matrix)
+
+ew_weights <- rep(1 / length(muhat.vals), length(muhat.vals))
+ew_return <- sum(ew_weights * muhat.vals)
+ew_sd <- sqrt(t(ew_weights) %*% cov_matrix %*% ew_weights)
+
+etf_data <- data.frame(
+  ETF = colnames(ret.mat),
+  Return = muhat.vals,
+  Std_Dev = sd.vals
+)
+
+efront_data <- data.frame(
+  Std_Dev = efront$sd,
+  Return = efront$er
+)
+
+ggplot() +
+  geom_line(data = efront_data, aes(x = Std_Dev, y = Return), color = "blue", size = 1) +
+  geom_point(data = etf_data, aes(x = Std_Dev, y = Return), color = "red", size = 3, shape = 16) +
+  geom_point(aes(x = gmvp_std, y = gmvp_mean), color = "green", size = 4, shape = 17) +
+  geom_point(aes(x = ew_sd, y = ew_return), color = "purple", size = 4, shape = 15) +
+  labs(
+    title = "Efficient Frontier with Global Minimum Variance Portfolio",
+    x = "Portfolio Standard Deviation (Risk)",
+    y = "Portfolio Expected Return",
+    caption = "Red = ETFs | Green = GMVP | Purple = Equally Weighted Portfolio"
+  ) +
+  theme_minimal()
+```
+
+
+**Find the efficient portfolio with the same mean as the equally weighted portfolio. How much smaller is the volatility of this portfolio compared to the equally weighted portfolio.**
+```{r}
+target_return <- ew_return
+target_return
+efficient_port <- efficient.portfolio(muhat.vals, cov_matrix, target_return)
+
+efficient_sd <- sqrt(t(efficient_port$weights) %*% cov_matrix %*% efficient_port$weights)
+efficient_sd
+
+volatility_reduction <- ((ew_sd - efficient_sd) / ew_sd) * 100
+volatility_reduction
+```
+Expected Return: 0.0104 
+Equally Weighted Portfolio Volatility: 0.0502 
+Efficient Portfolio Volatility: 0.0337 
+Volatility Reduction (%): 32.8 %
+
+
+By optimizing the portfolio while keeping the same expected return, the volatility is reduced by 32.8%. The efficient portfolio achieves the same return with much lower risk.
+
+
+**Find the efficient portfolio with the same volatility as the equally weighted portfolio. How much larger is the mean of this portfolio compared to the equally weighted portfolio?**
+```{r}
+target_volatility <- as.vector(ew_sd)
+target_volatility
+
+efront_sd <- as.vector(efront$sd)
+
+diff_vol <- abs(efront_sd - target_volatility)
+optimal_index <- which.min(diff_vol)
+
+efficient_return <- as.vector(efront$er[optimal_index])
+efficient_return
+efficient_sd <- as.vector(efront_sd[optimal_index])
+
+return_increase <- ((efficient_return - ew_return) / ew_return) * 100
+return_increase
+```
+Efficient Portfolio with Same Volatility as Equally Weighted Portfolio:
+Target Volatility: 0.0502 
+Equally Weighted Portfolio Return: 0.0104 
+Efficient Portfolio Return: 0.017 
+Return Increase (%): 63.6 %
+
+
+The efficient portfolio achieves 63.6% more return than the equally weighted portfolio while maintaining the exact same volatility.
+
+
+**Using the IntroCompFinR function tangency.portfolio() compute the tangency portfolio using a monthly risk free rate equal to 0.00167 per month (which corresponds to an annual rate of 2\% - again, change the number to what makes sense for your chosen sample period). Recall, we need the risk free rate to be smaller than the average return on the global minimum variance portfolio in order to get a nice graph.In the tangency portfolio, are any of the negative weights? Compute the expected return, variance and standard deviation of the tangency portfolio. Compare the Sharpe ratio of the tangency portfolio with those of the individual assets.**
+```{r}
+rf_monthly <- 0.00167
+
+tangency_port <- tangency.portfolio(muhat.vals, cov_matrix, rf_monthly)
+
+tangency_weights <- tangency_port$weights
+tangency_return <- sum(tangency_weights * muhat.vals)
+tangency_return
+tangency_variance <- t(tangency_weights) %*% cov_matrix %*% tangency_weights
+tangency_variance
+tangency_sd <- sqrt(tangency_variance)
+tangency_sd
+
+tangency_sharpe <- (tangency_return - rf_monthly) / tangency_sd
+tangency_sharpe
+individual_sharpe_ratios <- (muhat.vals - rf_monthly) / sd.vals
+
+sharpe_df <- data.frame(
+  Asset = c("Tangency Portfolio", colnames(ret.mat)),
+  Expected_Return = round(c(tangency_return, muhat.vals), 4),
+  Standard_Deviation = round(c(tangency_sd, sd.vals), 4),
+  Sharpe_Ratio = round(c(tangency_sharpe, individual_sharpe_ratios), 4)
+)
+
+cat("Tangency Portfolio Weights:\n")
+print(round(tangency_weights, 4))
+
+kable(sharpe_df, col.names = c("Asset", "Expected Return", "Standard Deviation", "Sharpe Ratio"))
+```
+Tangency Portfolio Results:
+Expected Monthly Return: 0.0186 
+Portfolio Variance: 0.00184 
+Portfolio Standard Deviation: 0.0429 
+Tangency Portfolio Sharpe Ratio: 0.395 
+
+
+VNQ (-45.9%) and IWM (-68.7%) are being shorted. ITOT (105.9%) and AAAU (63.1%) hold large positive weights, suggesting they contribute most to the portfolio's performance.
+
+The Tangency Portfolio has the highest Sharpe ratio (0.395). It provides the best risk-adjusted return among all options. 
+It outperforms all individual assets.
+
+
+**Annualize the the monthly ER and SD of the tangency portfolio by multiplying the ER by 12 and the SD by the square root of 12. Compute the annual Sharpe ratio from these values. Briefly comment.**
+```{r}
+tangency_return_annual <- tangency_return * 12
+tangency_return_annual
+tangency_sd_annual <- tangency_sd * sqrt(12)
+tangency_sd_annual
+
+rf_annual <- rf_monthly * 12 
+
+tangency_sharpe_annual <- (tangency_return_annual - rf_annual) / tangency_sd_annual
+tangency_sharpe_annual
+```
+Annualized Tangency Portfolio Results:
+Annualized Expected Return: 0.223 
+Annualized Standard Deviation: 0.149 
+Annualized Sharpe Ratio: 1.37 
+
+The Tangency Portfolio delivers a high annualized return. The volatility is reasonable, meaning the portfolio is not overly risky. The risk is lower than many individual assets (like XLE, which had high volatility). The Tangency Portfolio offers the best return per unit of risk (1.37 Sharpe Ratio). Higher than all individual assets and other portfolio strategies, confirming its optimal efficiency.
+
+
+**Show the tangency portfolio as well as combinations of T-bills and the tangency portfolio on a plot with the efficient frontier of risky assets.**
+```{r}
+w_tangency <- seq(-0.5, 1.5, length.out = 100)
+
+cml_return <- as.vector(rf + w_tangency * (as.vector(tangency_return) - rf))
+cml_sd <- as.vector(w_tangency * as.vector(tangency_sd))
+
+cml_data <- data.frame(
+  Std_Dev = cml_sd,
+  Return = cml_return
+)
+
+ggplot() +
+  geom_line(data = efront_data, aes(x = Std_Dev, y = Return), color = "blue", size = 1) +
+  geom_line(data = cml_data, aes(x = Std_Dev, y = Return), color = "red", linetype = "dashed", size = 1) +
+  geom_point(data = etf_data, aes(x = Std_Dev, y = Return), color = "red", size = 3, shape = 16) +
+  geom_point(aes(x = as.vector(tangency_sd), y = as.vector(tangency_return)), color = "green", size = 4, shape = 17) + 
+  geom_point(aes(x = 0, y = rf), color = "black", size = 4, shape = 15) +
+  labs(
+    title = "Efficient Frontier, Tangency Portfolio, and Capital Market Line",
+    x = "Portfolio Standard Deviation (Risk)",
+    y = "Portfolio Expected Return",
+    caption = "Blue = Efficient Frontier | Red Dashed = CML | Green = Tangency Portfolio | Black = Risk-Free Asset"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+**Using the IntroCompFinR funciton globalMin.portfolio() with optional argument shorts=FALSE, compute the global minimum variance portfolio with the added restriction that short-sales are not allowed, and calculate the expected return and SD of this portfolio.**
+```{r}
+gmvp_no_shorts <- globalMin.portfolio(muhat.vals, cov_matrix, shorts = FALSE)
+gmvp_no_shorts_weights <- gmvp_no_shorts$weights
+
+gmvp_no_shorts_return <- sum(gmvp_no_shorts_weights * muhat.vals)
+gmvp_no_shorts_return
+gmvp_no_shorts_sd <- sqrt(t(gmvp_no_shorts_weights) %*% cov_matrix %*% gmvp_no_shorts_weights)
+gmvp_no_shorts_sd
+
+cat("Portfolio Weights:\n")
+print(round(gmvp_no_shorts_weights, 4))
+
+```
+Global Minimum Variance Portfolio (No Short-Selling):
+Expected Monthly Return: 0.0116 
+Monthly Standard Deviation: 0.034 
+
+The volatility (3.4%) is very low. And for the return (1.16%), the no-short-selling portfolio is slightly less optimized due to constraints.
+
+Gold(66.88%) has strong risk-reducing properties. The broad U.S. stock market (ITOT-29.66%) is still included but at a lower weight than gold. VNQ, QQQ, and IWM were completely excluded, indicating they are too volatile for a low-risk portfolio. XLE (3.45%) were not entirely removed but kept at a very low allocation.
+
+
+**Annualize the the monthly estimates by multiplying the ER by 12 and the SD by the square root of 12. Compute the annual Sharpe ratio from these values. Compare this portfolio with the global minimum variance portfolio that allows short-sales.** 
+```{r}
+gmvp_no_shorts_return_annual <- gmvp_no_shorts_return * 12
+gmvp_no_shorts_return_annual
+gmvp_no_shorts_sd_annual <- gmvp_no_shorts_sd * sqrt(12)
+gmvp_no_shorts_sd_annual
+
+gmvp_no_shorts_sharpe_annual <- (gmvp_no_shorts_return_annual - rf_annual) / gmvp_no_shorts_sd_annual
+gmvp_no_shorts_sharpe_annual
+```
+Annualized GMVP (No Short-Selling) Results:
+Annualized Expected Return: 0.14 
+Annualized Volatility: 0.118 
+Annualized Sharpe Ratio: 1.02 
+
+Annualized GMVP (With Short-Selling) Results:
+Annualized Expected Return: 0.142 
+Annualized Volatility: 0.115 
+Annualized Sharpe Ratio: 1.06
+
+The No Short-Selling GMVP (11.8%) has slightly higher risk than the Short-Selling GMVP (11.5%). 
+No shorts GMVP has 13.9% annualized return and with shorts GMVP has 14.2% annualized return. The difference is small, meaning short-selling slightly improves returns, but not dramatically.
+GMVP (With Shorts) has a slightly better Sharpe Ratio (1.06) than the No Shorts GMVP (1.02).
+
+Both portfolios are great for risk-averse investors since they have low volatility and strong risk-adjusted returns.
+
+
+**Assume that you have $\$100,000$ to invest for a year starting at January 31. For the global minimum variance portfolio with short-sales not allowed, determine the $1\%$ and $5\%$ value-at-risk of the $100,000 investment over a one month investment horizon. Compare your results with those for the global minimum variance that allows short sales.**
+```{r}
+VaR_1_GMVP_NoShorts <- -z_1 * gmvp_no_shorts_sd * investment
+VaR_5_GMVP_NoShorts <- -z_5 * gmvp_no_shorts_sd * investment
+
+VaR_results <- data.frame(
+  Portfolio = c("GMVP (No Shorts)", "GMVP (With Shorts)"),
+  VaR_1 = round(c(VaR_1_GMVP_NoShorts, VaR_1_GMVP), 2),
+  VaR_5 = round(c(VaR_5_GMVP_NoShorts, VaR_5_GMVP), 2)
+)
+
+kable(VaR_results, col.names = c("Portfolio", "1% VaR", "5% VaR"))
+
+```
+The 1% VaR for GMVP (No Shorts) is 7,913, meaning in the worst 1% of months, this portfolio could lose at least 7,913. GMVP (No Shorts) has a slightly higher 5% VaR (5,595) than the Short-Selling GMVP ($5,461). This indicates that allowing short-selling helps marginally reduce downside risk, but the difference is small.
+
+
+**Using the IntroCompFinR function efficient.frontier() with the optional argument shorts=FALSE, compute and plot the efficient portfolio frontier this time not allowing for short sales, for the 5 ETFs.Create a plot (based on monthly frequency) with portfolio expected return on the vertical axis and portfolio standard deviation on the horizontal axis showing the efficient portfolios. Indicate the location of the global minimum variance portfolio (with short sales allowed) as well as the locations of your 5 assets and the equally weighted portfolio.**
+```{r}
+efront_no_shorts <- efficient.frontier(muhat.vals, cov_matrix, nport = 100, shorts = FALSE)
+
+efront_no_shorts_data <- data.frame(
+  Std_Dev = as.vector(efront_no_shorts$sd),
+  Return = as.vector(efront_no_shorts$er)
+)
+
+etf_data <- data.frame(
+  ETF = colnames(ret.mat),
+  Return = as.vector(muhat.vals),
+  Std_Dev = as.vector(sd.vals)
+)
+
+ggplot() +
+  geom_line(data = efront_no_shorts_data, aes(x = Std_Dev, y = Return), color = "blue", size = 1) +
+  geom_point(data = etf_data, aes(x = Std_Dev, y = Return), color = "red", size = 3, shape = 16) +
+  geom_point(aes(x = gmvp_std, y = gmvp_mean), color = "green", size = 4, shape = 17) + 
+  geom_point(aes(x = gmvp_no_shorts_sd, y = gmvp_no_shorts_return), color = "orange", size = 4, shape = 17) +
+  geom_point(aes(x = ew_sd, y = ew_return), color = "purple", size = 4, shape = 15) +
+  labs(
+    title = "Efficient Frontier (No Short-Selling) with GMVP & ETFs",
+    x = "Portfolio Standard Deviation (Risk)",
+    y = "Portfolio Expected Return",
+    caption = "Blue = Efficient Frontier (No Shorts) | Green = GMVP (Shorts Allowed) | Orange = GMVP (No Shorts) | Red = ETFs | Purple = Equally Weighted Portfolio"
+  ) +
+  theme_minimal()
+
+```
+
+**Compare the no short sale frontier with the frontier allowing short sales (plot them on the same graph). The no short sales frontier should be "inside" the frontier allowing for short sales.**
+```{r}
+efront_shorts <- efficient.frontier(muhat.vals, cov_matrix, nport = 100, shorts = TRUE)
+
+efront_shorts_data <- data.frame(
+  Std_Dev = as.vector(efront_shorts$sd),
+  Return = as.vector(efront_shorts$er)
+)
+
+ggplot() +
+  geom_line(data = efront_shorts_data, aes(x = Std_Dev, y = Return), color = "red", size = 1) +
+  geom_line(data = efront_no_shorts_data, aes(x = Std_Dev, y = Return), color = "blue", size = 1) + 
+  geom_point(data = etf_data, aes(x = Std_Dev, y = Return), color = "red", size = 3, shape = 16) + 
+  geom_point(aes(x = gmvp_std, y = gmvp_mean), color = "green", size = 4, shape = 17) +
+  geom_point(aes(x = gmvp_no_shorts_sd, y = gmvp_no_shorts_return), color = "orange", size = 4, shape = 17) + 
+  geom_point(aes(x = ew_sd, y = ew_return), color = "purple", size = 4, shape = 15) + 
+  labs(
+    title = "Comparison of Efficient Frontiers (With & Without Short-Selling)",
+    x = "Portfolio Standard Deviation (Risk)",
+    y = "Portfolio Expected Return",
+    caption = "Red = Short-Selling Allowed | Blue = No Short-Selling | Green = GMVP (Shorts) | Orange = GMVP (No Shorts) | Red Dots = ETFs"
+  ) +
+  theme_minimal()
+
+```
+Short-selling improves efficiency, leading to higher returns at the same level of risk. Without short-selling, the portfolio is more constrained, preventing full optimization. Without short-selling, risk is slightly higher, as seen from the rightward shift of the orange triangle.
+
+
+**Consider a portfolio with a target volatility of 0.02 or 2% per month (change this target if it doesn't make sense for your assets). What is the approximate cost in expected return of investing in a no short sale efficient portfolio versus a short sale efficient portfolio?**
+```{r}
+target_volatility <- 0.02  
+
+efront_shorts_sd <- as.vector(efront_shorts$sd)
+efront_no_shorts_sd <- as.vector(efront_no_shorts$sd)
+
+diff_vol_shorts <- abs(efront_shorts_sd - target_volatility)
+optimal_index_shorts <- which.min(diff_vol_shorts)
+efficient_return_shorts <- as.vector(efront_shorts$er[optimal_index_shorts])
+efficient_return_shorts
+
+diff_vol_no_shorts <- abs(efront_no_shorts_sd - target_volatility)
+optimal_index_no_shorts <- which.min(diff_vol_no_shorts)
+efficient_return_no_shorts <- as.vector(efront_no_shorts$er[optimal_index_no_shorts])
+efficient_return_no_shorts
+expected_return_cost <- efficient_return_shorts - efficient_return_no_shorts
+expected_return_cost
+```
+Target Monthly Volatility: 0.02 
+Expected Return (Short-Selling Allowed): 0.0118 
+Expected Return (No Short-Selling): 0.0116 
+Cost of No Short-Selling (Expected Return Loss): 0.00019 
+
+The expected return loss due to no short-selling is extremely small (0.019% per month or ~0.23% annually).
+This means that restricting short sales does not significantly impact portfolio efficiency at this volatility level.
+At 2% volatility, the short-sale portfolio provides a marginally higher return (1.18% vs. 1.16%).
+
+
+**Using a monthly risk free rate equal to 0.00167 per month and the estimated means, variances and covariances compute the tangency portfolio imposing the additional restriction that short-sales are not allowed. Compute the expected return, variance and standard deviation of the tangency portfolio. Give the value of Sharpe's slope for the no-short sales tangency portfolio.**
+```{r}
+rf_monthly <- 0.00167  
+
+tangency_no_shorts <- tangency.portfolio(muhat.vals, cov_matrix, risk.free = rf_monthly, shorts = FALSE)
+tangency_no_shorts_weights <- tangency_no_shorts$weights
+
+tangency_no_shorts_return <- sum(tangency_no_shorts_weights * muhat.vals)
+tangency_no_shorts_return
+tangency_no_shorts_variance <- t(tangency_no_shorts_weights) %*% cov_matrix %*% tangency_no_shorts_weights
+tangency_no_shorts_variance
+tangency_no_shorts_sd <- sqrt(tangency_no_shorts_variance)
+tangency_no_shorts_sd
+
+sharpe_slope_no_shorts <- (tangency_no_shorts_return - rf_monthly) / tangency_no_shorts_sd
+sharpe_slope_no_shorts
+
+cat("Portfolio Weights (No Short-Selling):\n")
+print(round(tangency_no_shorts_weights, 4))
+
+```
+Tangency Portfolio (No Short-Selling) Results:
+Expected Monthly Return: 0.0129 
+Monthly Variance: 0.00126 
+Monthly Standard Deviation: 0.0355 
+Sharpe’s Slope (Tangency Portfolio No Shorts): 0.316 
+
+1.29% monthly return (~15.5% annually) is still a strong return for an optimized portfolio. However, this return is lower than the short-selling tangency portfolio.
+The portfolio maintains a relatively low-risk profile. This risk level is higher than the GMVP but much lower than individual volatile assets.
+
+Gold (AAAU) dominates the portfolio (63.75%), likely due to its low correlation with other assets, providing stability. Tech stocks (QQQ) hold the second-largest allocation (31.78%). No allocation to VNQ, ITOT, or IWM indicates that they didn’t contribute positively in this optimization.
+
+Sharpe’s slope is lower than the unrestricted version. The lower Sharpe’s slope suggests that short-selling improves the portfolio's ability to generate excess returns for the same level of risk.
+
+
+**Annualize the the monthly ER and SD of the tangency portfolio by multiplying the ER by 12 and the SD by the square root of 12. Compute the annual Sharpe ratio from these values. Briefly comment.**
+```{r}
+tangency_no_shorts_return_annual <- tangency_no_shorts_return * 12
+tangency_no_shorts_return_annual
+tangency_no_shorts_sd_annual <- tangency_no_shorts_sd * sqrt(12)
+tangency_no_shorts_sd_annual
+
+tangency_no_shorts_sharpe_annual <- (tangency_no_shorts_return_annual - rf_annual) / tangency_no_shorts_sd_annual
+tangency_no_shorts_sharpe_annual
+```
+Annualized Tangency Portfolio (No Short-Selling) Results:
+Annualized Expected Return: 0.155
+Annualized Standard Deviation: 0.123 
+Annualized Sharpe Ratio: 1.09 
+
+Annualized expected return of 15.5% is strong for a low-risk portfolio. Even without short-selling, the Tangency Portfolio remains a high-return, low-risk investment.
+
+Annualized volatility (12.30%) is still relatively low. The portfolio is well-balanced between risk and return despite short-sale constraints.
+
+The Sharpe Ratio of 1.09 suggests strong risk-adjusted returns, but slightly lower than the unrestricted tangency portfolio.
+
+
+## Risk Budgeting
+
+**For the equally weighted portfolio, create a volatility risk report based on an investment of $100,000. Your risk report should be a table with columns for the assets, dollars invested in each asset, allocation weights, MCR, CR, PCR, asset correlation with portfolio, and asset beta with respect to the portfolio. Comment on the risk attribution of the portfolio. Does the risk attribution match the asset allocation? In other words, is there equal risk allocation in the portfolio? Which asset contributes most to the portfolio risk and which asset contributes least?**
+
+```{r}
+# Define Portfolio Weights (Equally Weighted)
+N <- ncol(ret.mat)
+equal_weights <- matrix(rep(1/N, N), ncol = 1)
+
+# Compute Portfolio Standard Deviation
+portfolio_variance <- t(equal_weights) %*% cov_matrix %*% equal_weights
+portfolio_std_dev <- sqrt(portfolio_variance)[1,1]
+
+# Compute Marginal Contribution to Risk (MCR)
+MCR <- (cov_matrix %*% equal_weights) / portfolio_std_dev
+
+# Compute Component Risk Contribution (CR) and Percentage Contribution to Risk (PCR)
+CR <- equal_weights * MCR
+PCR <- (CR / portfolio_std_dev) * 100
+
+# Asset Correlation with Portfolio
+portfolio_returns <- ret.mat %*% equal_weights
+asset_correlations <- apply(ret.mat, 2, function(x) cor(x, portfolio_returns, use = "complete.obs"))
+
+# Compute Asset Beta with Portfolio
+portfolio_variance_scalar <- var(as.vector(portfolio_returns), na.rm = TRUE)
+asset_betas <- apply(ret.mat, 2, function(x) cov(x, as.vector(portfolio_returns), use = "complete.obs") / portfolio_variance_scalar)
+
+# Total Portfolio Value
+total_investment <- 100000
+dollar_investment <- as.vector(equal_weights) * total_investment
+
+risk_report <- data.frame(
+  Asset = colnames(ret.mat),
+  Dollars_Invested = round(dollar_investment, 2),
+  Allocation_Weight = round(as.vector(equal_weights), 4),
+  MCR = round(as.vector(MCR), 4),
+  CR = round(as.vector(CR), 4),
+  PCR = round(as.vector(PCR), 2),
+  Correlation_with_Portfolio = round(asset_correlations, 4),
+  Beta_with_Portfolio = round(asset_betas, 4)
+)
+
+print(risk_report)
+
+ggplot(risk_report, aes(x = Asset, y = PCR, fill = Asset)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Percentage Risk Contribution (PCR) by Asset",
+       x = "Asset",
+       y = "Percentage Risk Contribution (%)") +
+  theme_minimal()
+
+# XLE contributes the most, while AAAU contributes the least to the portfolio risk.
+```
+
+## Asset Allocation
+
+**Suppose you wanted to achieve a target expected return of 6% per year (which corresponds to an expected return of 0.5% per month. ** Choose your own sensible target for your portfolio here** ) using only the 6 ETFs and no short sales. What is the efficient portfolio that achieves this target return? How much is invested in each of the Vanguard ETFs in this efficient portfolio?** I want to achieve a target expected return of 15% per year.
+
+```{r}
+target_annual_return <- 0.15  # 15% per year
+target_monthly_return <- target_annual_return / 12
+
+# Compute Efficient Portfolio (No Short-Selling)
+Eff_Port_NoShort <- efficient.portfolio(er = muhat.vals, 
+                                        cov.mat = cov_matrix, 
+                                        target.return = target_monthly_return, 
+                                        shorts = FALSE)
+
+
+Eff_Port_NoShort_weights <- Eff_Port_NoShort$weights
+dollar_investment <- Eff_Port_NoShort_weights * total_investment
+
+print("Efficient Portfolio Weights (No Short-Selling):")
+print(round(Eff_Port_NoShort_weights, 4))
+
+investment_report <- data.frame(
+  Portfolio_Weight = round(Eff_Port_NoShort_weights, 4),
+  Dollars_Invested = round(dollar_investment, 2)
+)
+print(investment_report)
+```
+
+
+**Compute the monthly SD on this efficient portfolio, as well as the monthly 1% and 5% value-at-risk based on an initial $100,000 investment.**
+
+```{r}
+# Compute Monthly Standard Deviation of the Efficient Portfolio
+portfolio_sd <- sqrt(t(Eff_Port_NoShort_weights) %*% cov_matrix %*% Eff_Port_NoShort_weights)
+
+# Compute 1% and 5% Value-at-Risk (VaR)
+z_1_percent <- -2.33  # 1% quantile for normal distribution
+z_5_percent <- -1.645  # 5% quantile for normal distribution
+
+VaR_1_percent <- z_1_percent * portfolio_sd * total_investment
+VaR_5_percent <- z_5_percent * portfolio_sd * total_investment
+
+# Print Results
+print(paste("Monthly Portfolio Standard Deviation:", round(portfolio_sd, 6)))
+print(paste("1% Monthly VaR:", round(VaR_1_percent, 2)))
+print(paste("5% Monthly VaR:", round(VaR_5_percent, 2)))
+```
+
+
+**Suppose you wanted to achieve a target expected return of 6% per year (which corresponds to an expected return of 0.5% per month) using the 6 ETFs and the risk free asset (with monthly return 0.00167), with no short sales of the risky assets. What is the efficient portfolio that achieves this target return? How much is invested in each of the Vanguard ETFs and the risk free asset in this efficient portfolio?**
+
+```{r}
+target_monthly_return <- 0.005
+
+rf_monthly <- 0.00167  # Monthly risk-free return
+
+Eff_Port_NoShort <- efficient.portfolio(er = muhat.vals, 
+                                        cov.mat = cov_matrix, 
+                                        target.return = mean(muhat.vals),  # Use a feasible ETF return
+                                        shorts = FALSE)
+
+Eff_Port_NoShort_weights <- Eff_Port_NoShort$weights
+
+# Compute Expected Return of the Risky Portfolio
+mu_risky_portfolio <- sum(Eff_Port_NoShort_weights * muhat.vals)
+
+# Compute Allocation Between Risk-Free & Risky Portfolio
+w_risk_free <- (mu_risky_portfolio - target_monthly_return) / (mu_risky_portfolio - rf_monthly)  # Solve for w_f
+w_risk_free <- max(0, min(w_risk_free, 1))  # Ensure within [0,1] for no short-selling
+
+w_risky <- 1 - w_risk_free  # Fraction in risky portfolio
+
+# Compute Weights for ETFs (Scaling the Risky Portfolio Weights)
+Eff_Port_Weights <- w_risky * Eff_Port_NoShort_weights  # Scale by risky fraction
+
+dollar_investment_risk_free <- w_risk_free * total_investment
+dollar_investment_ETFs <- Eff_Port_Weights * total_investment
+
+# Display Results
+print(paste("Weight in Risk-Free Asset:", round(w_risk_free, 4)))
+print(paste("Weight in Risky Portfolio:", round(w_risky, 4)))
+
+print("Efficient Portfolio Weights (Including Risk-Free Asset):")
+print(round(Eff_Port_Weights, 4))
+
+investment_report <- data.frame(
+  ETF = names(muhat.vals),
+  Portfolio_Weight = round(Eff_Port_Weights, 4),
+  Dollars_Invested = round(dollar_investment_ETFs, 2)
+)
+print(investment_report)
+
+print(paste("Dollar Investment in Risk-Free Asset: $", round(dollar_investment_risk_free, 2)))
+```
+
+# Executive Summary
+The purpose of this analysis is to evaluate the statistical properties of six selected financial assets and
+apply mean-variance portfolio theory to construct optimal asset allocations. The dataset consists of monthly
+adjusted closing prices obtained from Yahoo Finance from Sep 2018 to 2025. The statistical analysis investigates the return distributions, volatility characteristics, risk-adjusted performance, and diversification benefits of these assets.
+
+## Stylized Facts
+*Best Performing Asset:
+
+-The best-performing asset over the 10-year period is QQQ (Nasdaq-100 ETF), gaining 184% (final value of $2.84 per $1 invested).
+
+-The worst-performing asset is IWM (Russell 2000 ETF), with a final value of $1.35 per $1 invested.
+
+
+*Normal Distribution & Gaussian White Noise (GWN) Model:
+
+-The Gaussian White Noise (GWN) model is not a plausible assumption for all returns.
+
+-QQQ and ITOT show good alignment with normality.
+
+-XLE and AAAU exhibit the most deviation from normality, with heavier tails and multiple peaks in the return distribution.
+
+-All ETFs have negative excess kurtosis, meaning fewer extreme outliers than expected under a normal distribution.
+
+
+*Time Dependence & Correlation:
+
+-Returns are correlated over time, with ITOT and QQQ showing the highest correlation (0.921).
+
+-XLE and AAAU have the lowest correlation (-0.065), making gold a good diversifier.
+
+-VNQ and AAAU have a low correlation (0.246), further supporting diversification benefits.
+
+
+*Mean Returns & Volatility:
+
+-QQQ has the highest mean monthly return at 1.53%, followed by AAAU (Gold) at 1.18% and XLE (Energy) at 1.14%.
+
+-VNQ (Real Estate) and IWM (Small-caps) have the lowest mean returns at 0.63% and 0.62%, respectively.
+
+-XLE has the highest monthly volatility (9.92%), followed by IWM (6.90%).
+
+-AAAU (Gold) has the lowest monthly volatility (3.99%), making it a more stable asset.
+
+
+*Precision of Estimates:
+
+-Mean returns and volatilities are not estimated very precisely, as seen from high standard errors.
+
+-The standard deviations are estimated more precisely than mean returns, with lower coefficients of variation.
+
+-Annualized standard errors show that ITOT, VNQ, and QQQ have relatively more precise return estimates than XLE and IWM.
+
+
+*Risk-Return Tradeoff & Sharpe Ratios:
+
+-The highest Sharpe ratio is observed for AAAU (0.286), followed by QQQ (0.248), indicating a strong risk-return tradeoff.
+
+-IWM and VNQ have the lowest Sharpe ratios (0.084 and 0.101, respectively), meaning their returns do not compensate well for risk.
+
+-Bootstrapping results show that Sharpe ratios are not estimated very precisely, with large confidence intervals.
+
+
+*Correlation & Diversification Potential:
+
+-ITOT, QQQ, and IWM are highly correlated (~0.91), meaning they do not offer strong diversification benefits.
+
+-XLE is moderately correlated with the equity ETFs (~0.64), but still follows the overall market direction.
+
+-AAAU (Gold) has the lowest correlation with stocks (0.168 with ITOT), making it an effective hedge in a portfolio.
+
+
+*Value at Risk (VaR) & Normality Assumption:
+
+-XLE has the highest 1% Normal VaR of $21,952 (-21.95% of investment), meaning it has the highest tail risk.
+
+-AAAU has the lowest 1% Normal VaR at $8,091 (-8.09%), demonstrating lower downside risk.
+
+-The Normal VaR underestimates tail risk compared to Empirical VaR for most assets, particularly for VNQ and QQQ.
+
+-The difference is most pronounced for XLE, where Empirical VaR (-$18,984) is lower than Normal VaR (-$19,710), suggesting non-normal tails.
+
+
+*Covariance Stationarity & Rolling Estimates:
+
+-Returns do not appear to be covariance stationary over the full sample.
+
+-Rolling mean estimates fluctuate significantly, especially around market crises such as COVID-19 in 2020.
+
+-Rolling volatility estimates also show large variations, peaking during economic downturns.
+
+## Portfoloio Theory
+```{r}
+# Define portfolio results based on extracted values
+portfolio_results <- data.frame(
+  Portfolio = c("Equal-Weight Portfolio", 
+                "Global Minimum Variance (GMV) - Unrestricted",
+                "Global Minimum Variance (GMV) - No Shorting",
+                "Tangency Portfolio - Unrestricted",
+                "Tangency Portfolio - No Shorting"),
+  
+  Expected_Return = c(0.0104, 0.0118, 0.0116, 0.0186, 0.0129),  # Monthly returns
+  
+  Std_Dev = c(0.0502, 0.0332, 0.034, 0.0429, 0.0355),  # Monthly standard deviations
+  
+  Sharpe_Ratio = c(0.688, 1.19, 1.16, 1.06, 1.02),  # Sharpe ratios from results
+  
+  Key_Features = c("Well inside efficient frontier",
+                   "Long in ITOT, AAAU; Short in VNQ, QQQ, IWM",
+                   "All long positions",
+                   "Large long ITOT (wt = 1.06), Large short VNQ (-0.46), IWM (-0.68)",
+                   "100% in AAAU (Gold)")
+)
+
+# Display the summary table using kable (formatted for Markdown/HTML)
+library(knitr)
+kable(portfolio_results, col.names = c("Portfolio Type", "Expected Return", "Standard Deviation", "Sharpe Ratio", "Key Features"), digits = 4)
+```
+
+*Equal-Weight Portfolio (EWP):
+
+-The equal-weight portfolio is well inside the efficient frontier of risky assets.
+
+-Sharpe Ratio: 0.688, showing a reasonable risk-return tradeoff.
+
+-The risk is spread evenly across the stock ETFs.
+
+-AAAU (Gold) contributes only 8.09% of total portfolio risk, due to its low volatility.
+
+
+*Global Minimum Variance Portfolio (GMV):
+
+-Unrestricted GMV:
+
+--A long-short portfolio, taking long positions in ITOT and AAAU and short positions in VNQ, QQQ, and IWM.
+
+--Expected return: 1.18%, Standard deviation: 3.32%, Sharpe Ratio: 1.19%
+
+-No-Shorts GMV:
+
+--Achieves minimum volatility (3.4%), but with all long positions.
+
+
+*Efficient Frontier:
+
+-The efficient frontier allowing short sales has the classic Markowitz bullet shape.
+
+-AAAU (Gold) is the only fund close to the efficient frontier, meaning it has the best risk-adjusted return.
+
+-The no-shorts efficient frontier lies inside and to the right of the unrestricted frontier, meaning it has higher risk at any given return level.
+
+-The highest possible target expected return is the mean return of QQQ (1.53%).
+
+
+*Tangency Portfolio:
+
+-Allowing Shorts:
+
+--A strange long-short portfolio, with:
+
+---Large long position in ITOT (wt = 1.06)
+
+---Large short position in VNQ (-0.46) and IWM (-0.68)
+
+--Expected return: 1.86%, Standard deviation: 4.29%, annualized Sharpe Ratio: 1.06
+
+-No-Short Tangency Portfolio:
+
+--100% invested in AAAU (Gold), which has the annulized Sharpe ratio: 1.02.
+
+## Asset Allocation Summary
+Using the estimated means, variances, and covariances of returns, we constructed an efficient portfolio without short sales to achieve a target expected return of 15% per year (1.25% per month). The allocation of assets in this portfolio is as follows:
+
+*No-Shorts Efficient Portfolio (Target Return: 15% per Year)
+
+-The no-shorts efficient portfolio of risky assets consists of:
+
+--1.95% in ITOT (Total U.S. Stock Market)
+
+--7.37% in XLE (Energy Select Sector SPDR)
+
+--21.50% in QQQ (Nasdaq-100 ETF)
+
+--69.18% in AAAU (Gold ETF)
+
+--0% allocation to VNQ (Real Estate ETF) and IWM (Small-Cap Stocks)
+
+--Expected Monthly Return: 1.25%
+
+--Portfolio Standard Deviation: 3.47%
+
+--1% Monthly VaR: -$8,087.47
+
+--5% Monthly VaR: -$5,709.82
+
+
+*No-Shorts Efficient Portfolio with Risk-Free Asset (T-Bills)
+
+-If we include T-bills in the allocation, the portfolio structure changes slightly:
+
+--1.82% in ITOT (Total U.S. Stock Market)
+
+--3.55% in VNQ (Real Estate ETF)
+
+--0.77% in XLE (Energy Select Sector SPDR)
+
+--6.02% in IWM (Small-Cap Stocks)
+
+--26.07% in AAAU (Gold ETF)
+
+--61.77% in Risk-Free Asset (T-Bills)
+
+--Expected Monthly Return: 0.50%
+
+--Portfolio Standard Deviation: Lower than all-risky-assets portfolio
+
+--Dollar Investment in Risk-Free Asset: $61,772.6
+
+## Longer-horizon investment
+Short-selling benefits may diminish over a full year, as market trends may allow long-only strategies to catch up to short-leverage benefits. Strategic asset allocation is key—gold (AAAU) and ITOT remain strong hedges even in longer time horizons.
+
